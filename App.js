@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Appbar, Menu, PaperProvider } from 'react-native-paper';
+import { BlurView } from 'expo-blur';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Appbar, PaperProvider, Portal } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import {
   createUserWithEmailAndPassword,
@@ -25,14 +26,13 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import AuthScreen from './src/screens/AuthScreen';
 import HomeMapScreen from './src/screens/HomeMapScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ProfileFormScreen from './src/screens/ProfileFormScreen';
 import OccurrencesListScreen from './src/screens/OccurrencesListScreen';
 import OccurrenceFormScreen from './src/screens/OccurrenceFormScreen';
-import { auth, db, storage } from './src/firebase';
+import { auth, db } from './src/firebase';
 import { OCORRENCIA_INICIAL, PERFIL_INICIAL, REGIAO_PADRAO, TIPOS_PERIGO } from './src/constants';
 import { CORES, tema } from './src/theme';
 
@@ -57,7 +57,6 @@ export default function App() {
   const [perfil, setPerfil] = useState(null);
   const [perfilForm, setPerfilForm] = useState(PERFIL_INICIAL);
   const [carregandoPerfil, setCarregandoPerfil] = useState(false);
-  const [enviandoFoto, setEnviandoFoto] = useState(false);
   const [editandoPerfil, setEditandoPerfil] = useState(false);
 
   const [ocorrencias, setOcorrencias] = useState([]);
@@ -92,7 +91,16 @@ export default function App() {
     carregarMapaPrincipal();
   }, [usuario]);
 
-  const avatarUsuario = useMemo(() => perfil?.foto?.trim() || '', [perfil]);
+  const avatarUsuario = useMemo(() => {
+    const foto = perfil?.foto?.trim() || '';
+    if (foto.startsWith('icon:')) {
+      return { tipo: 'icone', valor: foto.replace('icon:', '') || 'person-circle-outline' };
+    }
+    if (foto) {
+      return { tipo: 'imagem', valor: foto };
+    }
+    return { tipo: 'icone', valor: 'person-circle-outline' };
+  }, [perfil]);
   const validarEmail = (email) => /\S+@\S+\.\S+/.test(email);
   const calcularDistanciaKm = (lat1, lon1, lat2, lon2) => {
     const toRad = (valor) => (valor * Math.PI) / 180;
@@ -143,7 +151,7 @@ export default function App() {
         email: emailCadastro.trim(),
         telefone: '',
         cidade: '',
-        foto: '',
+        foto: 'icon:person-circle-outline',
         criadoEm: serverTimestamp(),
       });
       setEmailLogin(emailCadastro.trim());
@@ -181,7 +189,7 @@ export default function App() {
           nome: dados.nome || '',
           telefone: dados.telefone || '',
           cidade: dados.cidade || '',
-          foto: dados.foto || '',
+          foto: dados.foto || 'icon:person-circle-outline',
         });
       } else {
         setPerfil(null);
@@ -206,7 +214,7 @@ export default function App() {
           nome: perfilForm.nome.trim(),
           telefone: perfilForm.telefone.trim(),
           cidade: perfilForm.cidade.trim(),
-          foto: perfilForm.foto.trim(),
+          foto: (perfilForm.foto || 'icon:person-circle-outline').trim(),
           atualizadoEm: serverTimestamp(),
         });
         Alert.alert('Sucesso', 'Perfil atualizado.');
@@ -218,7 +226,7 @@ export default function App() {
             email: usuario.email,
             telefone: perfilForm.telefone.trim(),
             cidade: perfilForm.cidade.trim(),
-            foto: perfilForm.foto.trim(),
+            foto: (perfilForm.foto || 'icon:person-circle-outline').trim(),
             criadoEm: serverTimestamp(),
           },
           { merge: true }
@@ -255,45 +263,6 @@ export default function App() {
         },
       },
     ]);
-  };
-
-  const selecionarFotoPerfil = async () => {
-    if (!usuario) return;
-    try {
-      const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissao.granted) {
-        Alert.alert('Permissao necessaria', 'Autorize o acesso a galeria.');
-        return;
-      }
-      const tipoImagem = ImagePicker.MediaType?.Images || ImagePicker.MediaType?.images || 'images';
-      const resultado = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: [tipoImagem],
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
-      if (resultado.canceled) return;
-      setEnviandoFoto(true);
-      const imagem = resultado.assets[0];
-      const resposta = await fetch(imagem.uri);
-      const blob = await resposta.blob();
-      const arquivoRef = ref(storage, `fotosPerfil/${usuario.uid}/${Date.now()}.jpg`);
-      await uploadBytes(arquivoRef, blob);
-      const downloadUrl = await getDownloadURL(arquivoRef);
-      setPerfilForm((anterior) => ({ ...anterior, foto: downloadUrl }));
-      if (perfil) {
-        await updateDoc(doc(db, 'usuarios', usuario.uid), {
-          foto: downloadUrl,
-          atualizadoEm: serverTimestamp(),
-        });
-        setPerfil((anterior) => ({ ...(anterior || {}), foto: downloadUrl }));
-      }
-      Alert.alert('Sucesso', 'Foto enviada com sucesso.');
-    } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel abrir/enviar foto: ' + error.message);
-    } finally {
-      setEnviandoFoto(false);
-    }
   };
 
   const carregarOcorrencias = async () => {
@@ -352,7 +321,7 @@ export default function App() {
         setOcorrenciasProximas(proximas);
       }
     } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel carregar mapa de perigos: ' + error.message);
+      Alert.alert('Erro', 'Não foi possível carregar mapa de perigos: ' + error.message);
     } finally {
       setCarregandoMapa(false);
     }
@@ -497,8 +466,6 @@ export default function App() {
         <ProfileFormScreen
           perfilForm={perfilForm}
           setPerfilForm={setPerfilForm}
-          enviandoFoto={enviandoFoto}
-          onUploadFoto={selecionarFotoPerfil}
           onCancel={() => setTelaPrivada('perfil')}
           onSubmit={salvarPerfil}
           editando={editandoPerfil}
@@ -562,11 +529,11 @@ export default function App() {
 
   const tituloTelaAtual = () => {
     if (!usuario) return abaPublica === 'login' ? 'Tela de Login' : 'Tela de Cadastro';
-    if (telaPrivada === 'mapa') return 'Mapa de Perigos Proximos';
-    if (telaPrivada === 'perfil') return 'Perfil de Usuario';
-    if (telaPrivada === 'ocorrencias') return 'Ocorrencias';
+    if (telaPrivada === 'mapa') return 'Mapa de Perigos Próximos';
+    if (telaPrivada === 'perfil') return 'Perfil';
+    if (telaPrivada === 'ocorrencias') return 'Ocorrências';
     if (telaPrivada === 'perfilForm') return editandoPerfil ? 'Editar Perfil' : 'Novo Perfil';
-    return editandoOcorrencia ? 'Editar Ocorrencia' : 'Nova Ocorrencia';
+    return editandoOcorrencia ? 'Editar Ocorrência' : 'Nova Ocorrência';
   };
 
   const mostrarLogoNoHeader = !usuario || telaPrivada === 'mapa';
@@ -584,6 +551,16 @@ export default function App() {
     if (telaPrivada === 'perfil' || telaPrivada === 'ocorrencias') {
       setTelaPrivada('mapa');
     }
+  };
+
+  const abrirTelaDoMenu = (proximaTela) => {
+    setMenuVisible(false);
+    setTelaPrivada(proximaTela);
+  };
+
+  const deslogarPeloMenu = () => {
+    setMenuVisible(false);
+    sair();
   };
 
   if (carregandoAuth) {
@@ -623,44 +600,48 @@ export default function App() {
             )}
 
             {usuario ? (
-              <>
-                <Menu
-                  visible={menuVisible}
-                  onDismiss={() => setMenuVisible(false)}
-                  anchor={<Appbar.Action icon="menu" onPress={() => setMenuVisible(true)} />}
-                >
-                  <Menu.Item
-                    title="Mapa principal"
-                    onPress={() => {
-                      setMenuVisible(false);
-                      setTelaPrivada('mapa');
-                    }}
-                  />
-                  <Menu.Item
-                    title="Perfil"
-                    onPress={() => {
-                      setMenuVisible(false);
-                      setTelaPrivada('perfil');
-                    }}
-                  />
-                  <Menu.Item
-                    title="Ocorrencias"
-                    onPress={() => {
-                      setMenuVisible(false);
-                      setTelaPrivada('ocorrencias');
-                    }}
-                  />
-                  <Menu.Item
-                    title="Deslogar"
-                    onPress={() => {
-                      setMenuVisible(false);
-                      sair();
-                    }}
-                  />
-                </Menu>
-              </>
+              <Appbar.Action
+                icon={menuVisible ? 'close' : 'menu'}
+                onPress={() => setMenuVisible((estadoAnterior) => !estadoAnterior)}
+              />
             ) : null}
           </Appbar.Header>
+
+          {usuario && menuVisible ? (
+            <Portal>
+              <View style={styles.menuOverlayContainer}>
+                <Pressable style={styles.menuOverlayBackdrop} onPress={() => setMenuVisible(false)}>
+                  {telaPrivada === 'mapa' ? (
+                    <BlurView intensity={34} tint="dark" style={StyleSheet.absoluteFill} />
+                  ) : (
+                    <View style={styles.menuOverlayEscuro} />
+                  )}
+                </Pressable>
+
+                <View style={styles.menuDropdown}>
+                  <Pressable style={styles.menuItem} onPress={() => abrirTelaDoMenu('mapa')}>
+                    <MaterialCommunityIcons name="map-marker-radius" size={20} color={CORES.primaria} />
+                    <Text style={styles.menuItemTexto}>Mapa principal</Text>
+                  </Pressable>
+
+                  <Pressable style={styles.menuItem} onPress={() => abrirTelaDoMenu('perfil')}>
+                    <MaterialCommunityIcons name="account-circle-outline" size={20} color={CORES.primaria} />
+                    <Text style={styles.menuItemTexto}>Perfil</Text>
+                  </Pressable>
+
+                  <Pressable style={styles.menuItem} onPress={() => abrirTelaDoMenu('ocorrencias')}>
+                    <MaterialCommunityIcons name="alert-outline" size={20} color={CORES.primaria} />
+                    <Text style={styles.menuItemTexto}>Ocorrências</Text>
+                  </Pressable>
+
+                  <Pressable style={[styles.menuItem, styles.menuItemUltimo]} onPress={deslogarPeloMenu}>
+                    <MaterialCommunityIcons name="logout" size={20} color={CORES.primaria} />
+                    <Text style={styles.menuItemTexto}>Deslogar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Portal>
+          ) : null}
 
           {!usuario ? (
             <AuthScreen
@@ -731,5 +712,44 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
+  },
+  menuOverlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+  },
+  menuOverlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  menuOverlayEscuro: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17, 24, 39, 0.55)',
+  },
+  menuDropdown: {
+    position: 'absolute',
+    top: 78,
+    right: 12,
+    width: 230,
+    backgroundColor: CORES.fundo,
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  menuItem: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  menuItemUltimo: {
+    marginTop: 2,
+  },
+  menuItemTexto: {
+    color: CORES.primaria,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

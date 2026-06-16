@@ -1,24 +1,33 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Card, Paragraph, TextInput, Title } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import { CORES } from '../theme';
 
+const AVATARES_DISPONIVEIS = [
+  'person-circle-outline',
+  'happy-outline',
+  'shield-checkmark-outline',
+  'star-outline',
+  'leaf-outline',
+  'planet-outline',
+];
+
 export default function ProfileFormScreen({
   perfilForm,
   setPerfilForm,
-  enviandoFoto,
-  onUploadFoto,
   onCancel,
   onSubmit,
   editando,
 }) {
+  const avatarSelecionado = (perfilForm.foto || '').replace('icon:', '') || 'person-circle-outline';
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
           <Card.Content>
-          <Title style={styles.title}>{editando ? 'Editar perfil' : 'Novo perfil'}</Title>
+          <Title style={styles.title}>{editando ? 'Editar perfil' : 'Criar perfil'}</Title>
           <TextInput
             label="Nome"
             value={perfilForm.nome}
@@ -60,32 +69,28 @@ export default function ProfileFormScreen({
           />
 
           <View style={styles.uploadPreviewContainer}>
-            {perfilForm.foto ? (
-              <Avatar.Image size={86} source={{ uri: perfilForm.foto }} />
-            ) : (
-              <Avatar.Icon
-                size={86}
-                style={styles.avatarPadrao}
-                icon={({ size, color }) => (
-                  <Ionicons name="person-circle-outline" size={size} color={color} />
-                )}
-              />
-            )}
-            <Paragraph style={styles.uploadPreviewText}>Preview da foto</Paragraph>
+            <Avatar.Icon
+              size={86}
+              style={styles.avatarPadrao}
+              icon={({ size, color }) => <Ionicons name={avatarSelecionado} size={size} color={color} />}
+            />
+            <Paragraph style={styles.uploadPreviewText}>Selecione um avatar</Paragraph>
           </View>
 
-          <Button
-            mode="contained"
-            icon="image-plus"
-            onPress={onUploadFoto}
-            loading={enviandoFoto}
-            disabled={enviandoFoto}
-            style={styles.uploadButton}
-            buttonColor={CORES.fundo}
-            textColor="#FFFFFF"
-          >
-            Upload de foto
-          </Button>
+          <View style={styles.avatarGrid}>
+            {AVATARES_DISPONIVEIS.map((icone) => {
+              const ativo = avatarSelecionado === icone;
+              return (
+                <Pressable
+                  key={icone}
+                  onPress={() => setPerfilForm({ ...perfilForm, foto: `icon:${icone}` })}
+                  style={[styles.avatarOption, ativo && styles.avatarOptionAtivo]}
+                >
+                  <Ionicons name={icone} size={28} color={ativo ? '#FFFFFF' : CORES.fundo} />
+                </Pressable>
+              );
+            })}
+          </View>
 
           <View style={styles.rowButtons}>
             <Button
@@ -147,7 +152,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   avatarPadrao: { backgroundColor: '#E5E7EB' },
-  uploadButton: { marginBottom: 12 },
+  avatarGrid: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  avatarOption: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  avatarOptionAtivo: {
+    backgroundColor: CORES.secundaria,
+    borderColor: CORES.secundaria,
+  },
   rowButtons: { marginTop: 14, flexDirection: 'row', gap: 8 },
   flexButton: { flex: 1 },
 });

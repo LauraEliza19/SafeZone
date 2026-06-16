@@ -44,14 +44,18 @@ export default function ProfileScreen({
     <Card style={styles.card}>
       <Card.Content>
         <View style={styles.linhaPerfil}>
-          {avatarUsuario ? (
-            <Avatar.Image size={76} source={{ uri: avatarUsuario }} />
+          {avatarUsuario?.tipo === 'imagem' ? (
+            <Avatar.Image size={76} source={{ uri: avatarUsuario.valor }} />
           ) : (
             <Avatar.Icon
               size={76}
               style={styles.avatarPadrao}
               icon={({ size, color }) => (
-                <Ionicons name="person-circle-outline" size={size} color={color} />
+                <Ionicons
+                  name={avatarUsuario?.valor || 'person-circle-outline'}
+                  size={size}
+                  color={color}
+                />
               )}
             />
           )}

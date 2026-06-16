@@ -26,7 +26,7 @@ export default function HomeMapScreen({
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={CORES.secundaria} />
-        <Text style={styles.loadingText}>Carregando perigos proximos...</Text>
+        <Text style={styles.loadingText}>Carregando perigos próximos...</Text>
       </View>
     );
   }
@@ -63,7 +63,7 @@ export default function HomeMapScreen({
             size={24}
             onPress={onGoOcorrencias}
           />
-          <Text style={styles.footerLabel}>Ocorrencias</Text>
+          <Text style={styles.footerLabel}>Ocorrências</Text>
         </View>
         <View style={styles.footerItem}>
           <IconButton icon="account-circle" iconColor="#FFFFFF" size={24} onPress={onGoPerfil} />

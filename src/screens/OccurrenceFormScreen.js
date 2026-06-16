@@ -30,18 +30,19 @@ export default function OccurrenceFormScreen({
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
           <Card.Content>
-          <Title>{editandoOcorrencia ? 'Editar ocorrencia' : 'Nova ocorrencia'}</Title>
           <Menu
             visible={menuTipoVisible}
             onDismiss={() => setMenuTipoVisible(false)}
             anchor={
               <Button
                 mode="contained"
-                icon="alert"
-                style={styles.selectButton}
+                icon="alert-outline"
+                style={styles.fieldButton}
                 buttonColor="#FFFFFF"
                 textColor={CORES.fundo}
                 onPress={() => setMenuTipoVisible(true)}
+                contentStyle={styles.fieldButtonContent}
+                labelStyle={styles.fieldButtonLabel}
               >
                 {ocorrenciaAtual.tipo || 'Selecionar tipo de perigo'}
               </Button>
@@ -59,24 +60,15 @@ export default function OccurrenceFormScreen({
             ))}
           </Menu>
 
-            <TextInput
-              label="Descricao"
-              value={ocorrenciaAtual.descricao}
-              onChangeText={(text) =>
-                setOcorrenciaAtual({ ...ocorrenciaAtual, descricao: text })
-              }
-              mode="outlined"
-              style={styles.input}
-              multiline
-            />
-
             <Button
               mode="contained"
-              icon="map-marker"
+              icon="map-marker-radius-outline"
               onPress={abrirMapa}
-              style={styles.selectButton}
+              style={styles.fieldButton}
               buttonColor="#FFFFFF"
               textColor={CORES.fundo}
+              contentStyle={styles.fieldButtonContent}
+              labelStyle={styles.fieldButtonLabel}
             >
               Selecionar local no mapa
             </Button>
@@ -94,11 +86,13 @@ export default function OccurrenceFormScreen({
               anchor={
                 <Button
                   mode="contained"
-                  icon="shield-alert"
-                  style={styles.selectButton}
+                  icon="shield-alert-outline"
+                  style={styles.fieldButton}
                   buttonColor="#FFFFFF"
                   textColor={CORES.fundo}
                   onPress={() => setMenuRiscoVisible(true)}
+                  contentStyle={styles.fieldButtonContent}
+                  labelStyle={styles.fieldButtonLabel}
                 >
                   Risco: {ocorrenciaAtual.risco}
                 </Button>
@@ -122,8 +116,32 @@ export default function OccurrenceFormScreen({
                 setOcorrenciaAtual({ ...ocorrenciaAtual, validadeHoras: text })
               }
               mode="outlined"
-              style={styles.input}
+              style={styles.fieldInput}
+              outlineStyle={styles.fieldInputOutline}
+              outlineColor="transparent"
+              activeOutlineColor="transparent"
+              left={<TextInput.Icon icon="clock-time-four-outline" color={CORES.fundo} />}
               keyboardType="numeric"
+              textColor={CORES.fundo}
+              cursorColor={CORES.secundaria}
+              selectionColor={CORES.secundaria}
+            />
+            <TextInput
+              label="Descricao"
+              value={ocorrenciaAtual.descricao}
+              onChangeText={(text) =>
+                setOcorrenciaAtual({ ...ocorrenciaAtual, descricao: text })
+              }
+              mode="outlined"
+              style={[styles.fieldInput, styles.fieldInputDescricao]}
+              outlineStyle={styles.fieldInputOutline}
+              outlineColor="transparent"
+              activeOutlineColor="transparent"
+              left={<TextInput.Icon icon="text-box-outline" color={CORES.fundo} />}
+              multiline
+              textColor={CORES.fundo}
+              cursorColor={CORES.secundaria}
+              selectionColor={CORES.secundaria}
             />
             <View style={styles.rowButtons}>
               <Button
@@ -219,8 +237,30 @@ const styles = StyleSheet.create({
     minHeight: '95%',
     borderRadius: 18,
   },
-  input: { marginBottom: 12, borderRadius: 14, backgroundColor: '#FFFFFF' },
-  selectButton: { marginBottom: 12, borderRadius: 12 },
+  fieldInput: {
+    marginBottom: 12,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  fieldInputDescricao: {
+    minHeight: 130,
+  },
+  fieldInputOutline: {
+    borderRadius: 14,
+    borderWidth: 0,
+  },
+  fieldButton: {
+    marginBottom: 12,
+    borderRadius: 14,
+  },
+  fieldButtonContent: {
+    minHeight: 54,
+    justifyContent: 'flex-start',
+  },
+  fieldButtonLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
   coordenadaText: { marginBottom: 12, color: CORES.textoSecundario },
   rowButtons: { marginTop: 14, flexDirection: 'row', gap: 8 },
   flexButton: { flex: 1 },
