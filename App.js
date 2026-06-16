@@ -1,29 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Image, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import {
-  ActivityIndicator,
-  Appbar,
-  Avatar,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  Modal,
-  PaperProvider,
-  Paragraph,
-  Portal,
-  SegmentedButtons,
-  Text,
-  TextInput,
-  Title,
-} from 'react-native-paper';
+import { Appbar, Menu, PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { getApp, getApps, initializeApp } from 'firebase/app';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import {
   createUserWithEmailAndPassword,
   deleteUser,
-  getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
@@ -35,48 +19,29 @@ import {
   doc,
   getDoc,
   getDocs,
-  getFirestore,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
-
-const firebaseConfig = {
-  apiKey: "AIzaSyA2O32NhLD6ihzFk1u96DraqNIk_8VwA0Q",
-  authDomain: "safezone-d2c2f.firebaseapp.com",
-  projectId: "safezone-d2c2f",
-  storageBucket: "safezone-d2c2f.firebasestorage.app",
-  messagingSenderId: "981904022626",
-  appId: "1:981904022626:web:8013aef233563ac637053b"
-};
-
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-const PERFIL_INICIAL = {
-  nome: '',
-  telefone: '',
-  cidade: '',
-  foto: '',
-};
-
-const OCORRENCIA_INICIAL = {
-  id: null,
-  tipo: '',
-  descricao: '',
-  local: '',
-  risco: 'Medio',
-  validadeHoras: '4',
-};
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import AuthScreen from './src/screens/AuthScreen';
+import HomeMapScreen from './src/screens/HomeMapScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import ProfileFormScreen from './src/screens/ProfileFormScreen';
+import OccurrencesListScreen from './src/screens/OccurrencesListScreen';
+import OccurrenceFormScreen from './src/screens/OccurrenceFormScreen';
+import { auth, db, storage } from './src/firebase';
+import { OCORRENCIA_INICIAL, PERFIL_INICIAL, REGIAO_PADRAO, TIPOS_PERIGO } from './src/constants';
+import { CORES, tema } from './src/theme';
 
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregandoAuth, setCarregandoAuth] = useState(true);
   const [abaPublica, setAbaPublica] = useState('login');
-  const [abaPrivada, setAbaPrivada] = useState('perfil');
+  const [telaPrivada, setTelaPrivada] = useState('mapa');
+  const [menuVisible, setMenuVisible] = useState(false);
   const [acaoEmAndamento, setAcaoEmAndamento] = useState(false);
 
   const [emailLogin, setEmailLogin] = useState('');
@@ -85,24 +50,30 @@ export default function App() {
   const [emailCadastro, setEmailCadastro] = useState('');
   const [senhaCadastro, setSenhaCadastro] = useState('');
   const [confirmarSenha, setConfirmarSenha] = useState('');
+  const [ocultarSenhaLogin, setOcultarSenhaLogin] = useState(true);
+  const [ocultarSenhaCadastro, setOcultarSenhaCadastro] = useState(true);
+  const [ocultarConfirmacaoSenha, setOcultarConfirmacaoSenha] = useState(true);
 
   const [perfil, setPerfil] = useState(null);
   const [perfilForm, setPerfilForm] = useState(PERFIL_INICIAL);
   const [carregandoPerfil, setCarregandoPerfil] = useState(false);
-  const [modalPerfil, setModalPerfil] = useState(false);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const [editandoPerfil, setEditandoPerfil] = useState(false);
 
   const [ocorrencias, setOcorrencias] = useState([]);
   const [carregandoOcorrencias, setCarregandoOcorrencias] = useState(false);
-  const [modalOcorrencia, setModalOcorrencia] = useState(false);
+  const [carregandoMapa, setCarregandoMapa] = useState(false);
+  const [ocorrenciasProximas, setOcorrenciasProximas] = useState([]);
+  const [localAtual, setLocalAtual] = useState(null);
   const [editandoOcorrencia, setEditandoOcorrencia] = useState(false);
   const [ocorrenciaAtual, setOcorrenciaAtual] = useState(OCORRENCIA_INICIAL);
+  const [regiaoMapa, setRegiaoMapa] = useState(REGIAO_PADRAO);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUsuario(user);
       setCarregandoAuth(false);
     });
-
     return unsubscribe;
   }, []);
 
@@ -111,41 +82,39 @@ export default function App() {
       setPerfil(null);
       setOcorrencias([]);
       setPerfilForm(PERFIL_INICIAL);
+      setTelaPrivada('mapa');
+      setOcorrenciasProximas([]);
+      setLocalAtual(null);
       return;
     }
-
     carregarPerfil();
     carregarOcorrencias();
+    carregarMapaPrincipal();
   }, [usuario]);
 
-  const avatarUsuario = useMemo(
-    () =>
-      perfil?.foto ||
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300',
-    [perfil]
-  );
-
+  const avatarUsuario = useMemo(() => perfil?.foto?.trim() || '', [perfil]);
   const validarEmail = (email) => /\S+@\S+\.\S+/.test(email);
-
-  const limparFormularioOcorrencia = () => {
-    setOcorrenciaAtual(OCORRENCIA_INICIAL);
-    setEditandoOcorrencia(false);
+  const calcularDistanciaKm = (lat1, lon1, lat2, lon2) => {
+    const toRad = (valor) => (valor * Math.PI) / 180;
+    const raioTerra = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return raioTerra * c;
   };
 
   const fazerLogin = async () => {
-    if (!validarEmail(emailLogin)) {
-      Alert.alert('Erro', 'Informe um e-mail valido.');
+    if (!validarEmail(emailLogin) || !senhaLogin.trim()) {
+      Alert.alert('Erro', 'Informe e-mail valido e senha.');
       return;
     }
-    if (!senhaLogin.trim()) {
-      Alert.alert('Erro', 'Informe a senha.');
-      return;
-    }
-
     setAcaoEmAndamento(true);
     try {
       await signInWithEmailAndPassword(auth, emailLogin.trim(), senhaLogin);
-      setAbaPrivada('perfil');
+      setTelaPrivada('mapa');
     } catch (error) {
       Alert.alert('Falha no login', error.message);
     } finally {
@@ -162,23 +131,13 @@ export default function App() {
       Alert.alert('Erro', 'Informe um e-mail valido.');
       return;
     }
-    if (senhaCadastro.length < 6) {
-      Alert.alert('Erro', 'A senha deve ter pelo menos 6 caracteres.');
+    if (senhaCadastro.length < 6 || senhaCadastro !== confirmarSenha) {
+      Alert.alert('Erro', 'Verifique senha e confirmacao.');
       return;
     }
-    if (senhaCadastro !== confirmarSenha) {
-      Alert.alert('Erro', 'As senhas nao conferem.');
-      return;
-    }
-
     setAcaoEmAndamento(true);
     try {
-      const credencial = await createUserWithEmailAndPassword(
-        auth,
-        emailCadastro.trim(),
-        senhaCadastro
-      );
-
+      const credencial = await createUserWithEmailAndPassword(auth, emailCadastro.trim(), senhaCadastro);
       await setDoc(doc(db, 'usuarios', credencial.user.uid), {
         nome: nomeCadastro.trim(),
         email: emailCadastro.trim(),
@@ -187,7 +146,6 @@ export default function App() {
         foto: '',
         criadoEm: serverTimestamp(),
       });
-
       setEmailLogin(emailCadastro.trim());
       setSenhaLogin(senhaCadastro);
       setNomeCadastro('');
@@ -213,11 +171,9 @@ export default function App() {
 
   const carregarPerfil = async () => {
     if (!usuario) return;
-
     setCarregandoPerfil(true);
     try {
-      const perfilRef = doc(db, 'usuarios', usuario.uid);
-      const perfilSnapshot = await getDoc(perfilRef);
+      const perfilSnapshot = await getDoc(doc(db, 'usuarios', usuario.uid));
       if (perfilSnapshot.exists()) {
         const dados = perfilSnapshot.data();
         setPerfil(dados);
@@ -229,12 +185,7 @@ export default function App() {
         });
       } else {
         setPerfil(null);
-        setPerfilForm({
-          nome: '',
-          telefone: '',
-          cidade: '',
-          foto: '',
-        });
+        setPerfilForm(PERFIL_INICIAL);
       }
     } catch (error) {
       Alert.alert('Erro', 'Nao foi possivel carregar o perfil: ' + error.message);
@@ -243,108 +194,117 @@ export default function App() {
     }
   };
 
-  const criarPerfil = async () => {
-    if (!usuario) return;
-    if (!perfilForm.nome.trim()) {
-      Alert.alert('Erro', 'Informe o nome para criar o perfil.');
+  const salvarPerfil = async () => {
+    if (!usuario || !perfilForm.nome.trim()) {
+      Alert.alert('Erro', 'Informe o nome do perfil.');
       return;
     }
-
     setAcaoEmAndamento(true);
     try {
-      await setDoc(
-        doc(db, 'usuarios', usuario.uid),
-        {
+      if (editandoPerfil) {
+        await updateDoc(doc(db, 'usuarios', usuario.uid), {
           nome: perfilForm.nome.trim(),
-          email: usuario.email,
           telefone: perfilForm.telefone.trim(),
           cidade: perfilForm.cidade.trim(),
           foto: perfilForm.foto.trim(),
-          criadoEm: serverTimestamp(),
-        },
-        { merge: true }
-      );
+          atualizadoEm: serverTimestamp(),
+        });
+        Alert.alert('Sucesso', 'Perfil atualizado.');
+      } else {
+        await setDoc(
+          doc(db, 'usuarios', usuario.uid),
+          {
+            nome: perfilForm.nome.trim(),
+            email: usuario.email,
+            telefone: perfilForm.telefone.trim(),
+            cidade: perfilForm.cidade.trim(),
+            foto: perfilForm.foto.trim(),
+            criadoEm: serverTimestamp(),
+          },
+          { merge: true }
+        );
+        Alert.alert('Sucesso', 'Perfil criado com sucesso.');
+      }
       await carregarPerfil();
-      Alert.alert('Sucesso', 'Perfil criado com sucesso.');
+      setTelaPrivada('perfil');
     } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel criar o perfil: ' + error.message);
-    } finally {
-      setAcaoEmAndamento(false);
-    }
-  };
-
-  const atualizarPerfil = async () => {
-    if (!usuario) return;
-    if (!perfilForm.nome.trim()) {
-      Alert.alert('Erro', 'Informe seu nome.');
-      return;
-    }
-
-    setAcaoEmAndamento(true);
-    try {
-      await updateDoc(doc(db, 'usuarios', usuario.uid), {
-        nome: perfilForm.nome.trim(),
-        telefone: perfilForm.telefone.trim(),
-        cidade: perfilForm.cidade.trim(),
-        foto: perfilForm.foto.trim(),
-        atualizadoEm: serverTimestamp(),
-      });
-      await carregarPerfil();
-      setModalPerfil(false);
-      Alert.alert('Sucesso', 'Perfil atualizado.');
-    } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel atualizar o perfil: ' + error.message);
+      Alert.alert('Erro', 'Nao foi possivel salvar perfil: ' + error.message);
     } finally {
       setAcaoEmAndamento(false);
     }
   };
 
   const excluirPerfil = () => {
-    Alert.alert(
-      'Excluir perfil',
-      'Esta acao remove seu perfil e conta de autenticacao. Deseja continuar?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            if (!usuario) return;
-            setAcaoEmAndamento(true);
-            try {
-              await deleteDoc(doc(db, 'usuarios', usuario.uid));
-              await deleteUser(usuario);
-              Alert.alert('Conta removida', 'Seu perfil foi excluido com sucesso.');
-            } catch (error) {
-              Alert.alert(
-                'Erro',
-                'Nao foi possivel excluir. Faça login novamente e tente: ' + error.message
-              );
-            } finally {
-              setAcaoEmAndamento(false);
-            }
-          },
+    Alert.alert('Excluir perfil', 'Deseja realmente excluir o perfil e a conta?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          if (!usuario) return;
+          setAcaoEmAndamento(true);
+          try {
+            await deleteDoc(doc(db, 'usuarios', usuario.uid));
+            await deleteUser(usuario);
+            Alert.alert('Conta removida', 'Perfil excluido com sucesso.');
+          } catch (error) {
+            Alert.alert('Erro', 'Nao foi possivel excluir: ' + error.message);
+          } finally {
+            setAcaoEmAndamento(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
+  };
+
+  const selecionarFotoPerfil = async () => {
+    if (!usuario) return;
+    try {
+      const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissao.granted) {
+        Alert.alert('Permissao necessaria', 'Autorize o acesso a galeria.');
+        return;
+      }
+      const tipoImagem = ImagePicker.MediaType?.Images || ImagePicker.MediaType?.images || 'images';
+      const resultado = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: [tipoImagem],
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (resultado.canceled) return;
+      setEnviandoFoto(true);
+      const imagem = resultado.assets[0];
+      const resposta = await fetch(imagem.uri);
+      const blob = await resposta.blob();
+      const arquivoRef = ref(storage, `fotosPerfil/${usuario.uid}/${Date.now()}.jpg`);
+      await uploadBytes(arquivoRef, blob);
+      const downloadUrl = await getDownloadURL(arquivoRef);
+      setPerfilForm((anterior) => ({ ...anterior, foto: downloadUrl }));
+      if (perfil) {
+        await updateDoc(doc(db, 'usuarios', usuario.uid), {
+          foto: downloadUrl,
+          atualizadoEm: serverTimestamp(),
+        });
+        setPerfil((anterior) => ({ ...(anterior || {}), foto: downloadUrl }));
+      }
+      Alert.alert('Sucesso', 'Foto enviada com sucesso.');
+    } catch (error) {
+      Alert.alert('Erro', 'Nao foi possivel abrir/enviar foto: ' + error.message);
+    } finally {
+      setEnviandoFoto(false);
+    }
   };
 
   const carregarOcorrencias = async () => {
     if (!usuario) return;
     setCarregandoOcorrencias(true);
     try {
-      const ocorrenciasQuery = query(
-        collection(db, 'ocorrencias'),
-        where('uid', '==', usuario.uid)
+      const snapshot = await getDocs(
+        query(collection(db, 'ocorrencias'), where('uid', '==', usuario.uid))
       );
-      const snapshot = await getDocs(ocorrenciasQuery);
-
-      const dados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      dados.sort((a, b) => {
-        const tA = a.criadoEm?.seconds || 0;
-        const tB = b.criadoEm?.seconds || 0;
-        return tB - tA;
-      });
+      const dados = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      dados.sort((a, b) => (b.criadoEm?.seconds || 0) - (a.criadoEm?.seconds || 0));
       setOcorrencias(dados);
     } catch (error) {
       Alert.alert('Erro', 'Nao foi possivel carregar ocorrencias: ' + error.message);
@@ -353,65 +313,55 @@ export default function App() {
     }
   };
 
-  const validarOcorrencia = () => {
-    if (!ocorrenciaAtual.tipo.trim()) {
-      Alert.alert('Erro', 'Informe o tipo de perigo.');
-      return false;
-    }
-    if (!ocorrenciaAtual.descricao.trim()) {
-      Alert.alert('Erro', 'Informe a descricao.');
-      return false;
-    }
-    if (!ocorrenciaAtual.local.trim()) {
-      Alert.alert('Erro', 'Informe o local.');
-      return false;
-    }
-    if (!Number(ocorrenciaAtual.validadeHoras) || Number(ocorrenciaAtual.validadeHoras) <= 0) {
-      Alert.alert('Erro', 'Informe validade em horas (numero maior que zero).');
-      return false;
-    }
-    return true;
-  };
-
-  const salvarOcorrencia = async () => {
-    if (!usuario || !validarOcorrencia()) return;
-
-    setAcaoEmAndamento(true);
+  const carregarMapaPrincipal = async () => {
+    setCarregandoMapa(true);
     try {
-      const payload = {
-        uid: usuario.uid,
-        tipo: ocorrenciaAtual.tipo.trim(),
-        descricao: ocorrenciaAtual.descricao.trim(),
-        local: ocorrenciaAtual.local.trim(),
-        risco: ocorrenciaAtual.risco,
-        validadeHoras: Number(ocorrenciaAtual.validadeHoras),
-        expiraEm: new Date(
-          Date.now() + Number(ocorrenciaAtual.validadeHoras) * 60 * 60 * 1000
-        ),
-      };
-
-      if (editandoOcorrencia) {
-        await updateDoc(doc(db, 'ocorrencias', ocorrenciaAtual.id), {
-          ...payload,
-          atualizadoEm: serverTimestamp(),
-        });
-        Alert.alert('Sucesso', 'Ocorrencia atualizada.');
-      } else {
-        await addDoc(collection(db, 'ocorrencias'), {
-          ...payload,
-          criadoEm: serverTimestamp(),
-        });
-        Alert.alert('Sucesso', 'Ocorrencia cadastrada.');
+      let origem = null;
+      const permissao = await Location.requestForegroundPermissionsAsync();
+      if (permissao.granted) {
+        const posicao = await Location.getCurrentPositionAsync({});
+        origem = {
+          latitude: posicao.coords.latitude,
+          longitude: posicao.coords.longitude,
+        };
+        setLocalAtual(origem);
       }
 
-      setModalOcorrencia(false);
-      limparFormularioOcorrencia();
-      carregarOcorrencias();
+      const snapshot = await getDocs(collection(db, 'ocorrencias'));
+      const todos = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const comCoordenadas = todos.filter(
+        (item) => typeof item.latitude === 'number' && typeof item.longitude === 'number'
+      );
+
+      if (!origem) {
+        setOcorrenciasProximas(comCoordenadas.slice(0, 50));
+      } else {
+        const proximas = comCoordenadas
+          .map((item) => ({
+            ...item,
+            distanciaKm: calcularDistanciaKm(
+              origem.latitude,
+              origem.longitude,
+              item.latitude,
+              item.longitude
+            ),
+          }))
+          .filter((item) => item.distanciaKm <= 10)
+          .sort((a, b) => a.distanciaKm - b.distanciaKm);
+
+        setOcorrenciasProximas(proximas);
+      }
     } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel salvar a ocorrencia: ' + error.message);
+      Alert.alert('Erro', 'Nao foi possivel carregar mapa de perigos: ' + error.message);
     } finally {
-      setAcaoEmAndamento(false);
+      setCarregandoMapa(false);
     }
+  };
+
+  const abrirNovaOcorrencia = () => {
+    setOcorrenciaAtual(OCORRENCIA_INICIAL);
+    setEditandoOcorrencia(false);
+    setTelaPrivada('ocorrenciaForm');
   };
 
   const editarOcorrencia = (item) => {
@@ -420,11 +370,13 @@ export default function App() {
       tipo: item.tipo || '',
       descricao: item.descricao || '',
       local: item.local || '',
+      latitude: item.latitude ?? null,
+      longitude: item.longitude ?? null,
       risco: item.risco || 'Medio',
       validadeHoras: String(item.validadeHoras || '4'),
     });
     setEditandoOcorrencia(true);
-    setModalOcorrencia(true);
+    setTelaPrivada('ocorrenciaForm');
   };
 
   const excluirOcorrencia = (item) => {
@@ -449,278 +401,199 @@ export default function App() {
     ]);
   };
 
-  const abrirNovaOcorrencia = () => {
-    limparFormularioOcorrencia();
-    setModalOcorrencia(true);
+  const abrirMapaSelecao = async () => {
+    try {
+      if (ocorrenciaAtual.latitude !== null && ocorrenciaAtual.longitude !== null) {
+        setRegiaoMapa((atual) => ({
+          ...atual,
+          latitude: ocorrenciaAtual.latitude,
+          longitude: ocorrenciaAtual.longitude,
+        }));
+      }
+      const permissao = await Location.requestForegroundPermissionsAsync();
+      if (permissao.granted) {
+        const posicao = await Location.getCurrentPositionAsync({});
+        setRegiaoMapa((atual) => ({
+          ...atual,
+          latitude: posicao.coords.latitude,
+          longitude: posicao.coords.longitude,
+        }));
+      }
+    } catch (error) {
+      // Usa regiao padrao.
+    }
   };
 
-  const renderTelaPublica = () => (
-    <ScrollView contentContainerStyle={styles.centralizado}>
-      <Card style={styles.cardAuth}>
-        <Card.Content>
-          <Title style={styles.titulo}>SafeZone</Title>
-          <Paragraph style={styles.subtitulo}>
-            Seguranca colaborativa com alertas em tempo real.
-          </Paragraph>
+  const selecionarCoordenadasMapa = (evento) => {
+    const { latitude, longitude } = evento.nativeEvent.coordinate;
+    setOcorrenciaAtual((anterior) => ({
+      ...anterior,
+      latitude,
+      longitude,
+      local: `Lat ${latitude.toFixed(5)}, Lng ${longitude.toFixed(5)}`,
+    }));
+  };
 
-          <SegmentedButtons
-            value={abaPublica}
-            onValueChange={setAbaPublica}
-            buttons={[
-              { value: 'login', label: 'Entrar' },
-              { value: 'cadastro', label: 'Cadastrar' },
-            ]}
-            style={styles.segmented}
-          />
+  const salvarOcorrencia = async () => {
+    if (!usuario) return;
+    if (!ocorrenciaAtual.tipo.trim() || !ocorrenciaAtual.descricao.trim()) {
+      Alert.alert('Erro', 'Preencha tipo e descricao.');
+      return;
+    }
+    if (ocorrenciaAtual.latitude === null || ocorrenciaAtual.longitude === null) {
+      Alert.alert('Erro', 'Selecione o local no mapa.');
+      return;
+    }
+    if (!Number(ocorrenciaAtual.validadeHoras) || Number(ocorrenciaAtual.validadeHoras) <= 0) {
+      Alert.alert('Erro', 'Validade em horas invalida.');
+      return;
+    }
+    setAcaoEmAndamento(true);
+    try {
+      const payload = {
+        uid: usuario.uid,
+        tipo: ocorrenciaAtual.tipo.trim(),
+        descricao: ocorrenciaAtual.descricao.trim(),
+        local: ocorrenciaAtual.local.trim(),
+        latitude: ocorrenciaAtual.latitude,
+        longitude: ocorrenciaAtual.longitude,
+        risco: ocorrenciaAtual.risco,
+        validadeHoras: Number(ocorrenciaAtual.validadeHoras),
+        expiraEm: new Date(Date.now() + Number(ocorrenciaAtual.validadeHoras) * 60 * 60 * 1000),
+      };
+      if (editandoOcorrencia) {
+        await updateDoc(doc(db, 'ocorrencias', ocorrenciaAtual.id), {
+          ...payload,
+          atualizadoEm: serverTimestamp(),
+        });
+        Alert.alert('Sucesso', 'Ocorrencia atualizada.');
+      } else {
+        await addDoc(collection(db, 'ocorrencias'), {
+          ...payload,
+          criadoEm: serverTimestamp(),
+        });
+        Alert.alert('Sucesso', 'Ocorrencia cadastrada.');
+      }
+      setOcorrenciaAtual(OCORRENCIA_INICIAL);
+      setEditandoOcorrencia(false);
+      await carregarOcorrencias();
+      setTelaPrivada('ocorrencias');
+    } catch (error) {
+      Alert.alert('Erro', 'Nao foi possivel salvar a ocorrencia: ' + error.message);
+    } finally {
+      setAcaoEmAndamento(false);
+    }
+  };
 
-          {abaPublica === 'login' ? (
-            <View>
-              <TextInput
-                label="E-mail"
-                value={emailLogin}
-                onChangeText={setEmailLogin}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="email" />}
-              />
-              <TextInput
-                label="Senha"
-                value={senhaLogin}
-                onChangeText={setSenhaLogin}
-                secureTextEntry
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="lock" />}
-              />
-              <Button
-                mode="contained"
-                icon="login"
-                loading={acaoEmAndamento}
-                disabled={acaoEmAndamento}
-                onPress={fazerLogin}
-              >
-                Entrar
-              </Button>
-            </View>
-          ) : (
-            <View>
-              <TextInput
-                label="Nome"
-                value={nomeCadastro}
-                onChangeText={setNomeCadastro}
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="account" />}
-              />
-              <TextInput
-                label="E-mail"
-                value={emailCadastro}
-                onChangeText={setEmailCadastro}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="email" />}
-              />
-              <TextInput
-                label="Senha"
-                value={senhaCadastro}
-                onChangeText={setSenhaCadastro}
-                secureTextEntry
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="lock" />}
-              />
-              <TextInput
-                label="Confirmar senha"
-                value={confirmarSenha}
-                onChangeText={setConfirmarSenha}
-                secureTextEntry
-                mode="outlined"
-                style={styles.input}
-                left={<TextInput.Icon icon="lock-check" />}
-              />
-              <Button
-                mode="contained"
-                icon="account-plus"
-                loading={acaoEmAndamento}
-                disabled={acaoEmAndamento}
-                onPress={cadastrarUsuario}
-              >
-                Criar conta
-              </Button>
-            </View>
-          )}
-        </Card.Content>
-      </Card>
-    </ScrollView>
-  );
+  const abrirFormPerfil = (editar) => {
+    setEditandoPerfil(editar);
+    if (!editar && !perfil) setPerfilForm(PERFIL_INICIAL);
+    setTelaPrivada('perfilForm');
+  };
 
-  const renderPerfil = () => {
-    if (carregandoPerfil) {
+  const renderConteudoPrivado = () => {
+    if (telaPrivada === 'perfilForm') {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Carregando perfil...</Text>
-        </View>
+        <ProfileFormScreen
+          perfilForm={perfilForm}
+          setPerfilForm={setPerfilForm}
+          enviandoFoto={enviandoFoto}
+          onUploadFoto={selecionarFotoPerfil}
+          onCancel={() => setTelaPrivada('perfil')}
+          onSubmit={salvarPerfil}
+          editando={editandoPerfil}
+        />
       );
     }
 
-    if (!perfil) {
+    if (telaPrivada === 'ocorrenciaForm') {
       return (
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title>Crie seu perfil</Title>
-            <Paragraph>
-              O cadastro da conta foi criado, agora finalize seu perfil com os dados abaixo.
-            </Paragraph>
-            <TextInput
-              label="Nome"
-              value={perfilForm.nome}
-              onChangeText={(text) => setPerfilForm({ ...perfilForm, nome: text })}
-              mode="outlined"
-              style={styles.input}
-            />
-            <TextInput
-              label="Telefone"
-              value={perfilForm.telefone}
-              onChangeText={(text) => setPerfilForm({ ...perfilForm, telefone: text })}
-              mode="outlined"
-              style={styles.input}
-            />
-            <TextInput
-              label="Cidade"
-              value={perfilForm.cidade}
-              onChangeText={(text) => setPerfilForm({ ...perfilForm, cidade: text })}
-              mode="outlined"
-              style={styles.input}
-            />
-            <TextInput
-              label="URL da foto"
-              value={perfilForm.foto}
-              onChangeText={(text) => setPerfilForm({ ...perfilForm, foto: text })}
-              mode="outlined"
-              style={styles.input}
-            />
-            <Button
-              mode="contained"
-              icon="content-save"
-              onPress={criarPerfil}
-              loading={acaoEmAndamento}
-              disabled={acaoEmAndamento}
-            >
-              Criar perfil
-            </Button>
-          </Card.Content>
-        </Card>
+        <OccurrenceFormScreen
+          ocorrenciaAtual={ocorrenciaAtual}
+          setOcorrenciaAtual={setOcorrenciaAtual}
+          editandoOcorrencia={editandoOcorrencia}
+          tiposPerigo={TIPOS_PERIGO}
+          regiaoMapa={regiaoMapa}
+          abrirMapaSelecao={abrirMapaSelecao}
+          selecionarCoordenadasMapa={selecionarCoordenadasMapa}
+          onCancel={() => setTelaPrivada('ocorrencias')}
+          onSubmit={salvarOcorrencia}
+        />
+      );
+    }
+
+    if (telaPrivada === 'perfil') {
+      return (
+        <ProfileScreen
+          carregandoPerfil={carregandoPerfil}
+          perfil={perfil}
+          usuario={usuario}
+          avatarUsuario={avatarUsuario}
+          onOpenProfileForm={abrirFormPerfil}
+          onDeleteProfile={excluirPerfil}
+        />
+      );
+    }
+
+    if (telaPrivada === 'ocorrencias') {
+      return (
+        <OccurrencesListScreen
+          carregandoOcorrencias={carregandoOcorrencias}
+          ocorrencias={ocorrencias}
+          onNova={abrirNovaOcorrencia}
+          onEditar={editarOcorrencia}
+          onExcluir={excluirOcorrencia}
+        />
       );
     }
 
     return (
-      <Card style={styles.card}>
-        <Card.Content>
-          <View style={styles.linhaPerfil}>
-            <Avatar.Image size={76} source={{ uri: avatarUsuario }} />
-            <View style={styles.colunaPerfil}>
-              <Title>{perfil.nome}</Title>
-              <Paragraph>{perfil.email || usuario.email}</Paragraph>
-            </View>
-          </View>
-          <Divider style={styles.divider} />
-          <Paragraph>Telefone: {perfil.telefone || 'Nao informado'}</Paragraph>
-          <Paragraph>Cidade: {perfil.cidade || 'Nao informada'}</Paragraph>
-          <View style={styles.rowButtons}>
-            <Button
-              mode="outlined"
-              icon="pencil"
-              onPress={() => setModalPerfil(true)}
-              style={styles.flexButton}
-            >
-              Editar
-            </Button>
-            <Button
-              mode="contained"
-              buttonColor="#c62828"
-              icon="delete"
-              onPress={excluirPerfil}
-              style={styles.flexButton}
-            >
-              Excluir
-            </Button>
-          </View>
-        </Card.Content>
-      </Card>
+      <HomeMapScreen
+        carregandoMapa={carregandoMapa}
+        ocorrenciasProximas={ocorrenciasProximas}
+        localAtual={localAtual}
+        regiaoPadrao={REGIAO_PADRAO}
+        onRefresh={carregarMapaPrincipal}
+        onGoPerfil={() => setTelaPrivada('perfil')}
+        onGoOcorrencias={() => setTelaPrivada('ocorrencias')}
+      />
     );
   };
 
-  const renderOcorrencias = () => (
-    <View style={styles.fullHeight}>
-      <View style={styles.headerLista}>
-        <Title>Ocorrencias</Title>
-        <Button mode="contained" icon="plus" onPress={abrirNovaOcorrencia}>
-          Nova
-        </Button>
-      </View>
-      {carregandoOcorrencias ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Carregando ocorrencias...</Text>
-        </View>
-      ) : ocorrencias.length === 0 ? (
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title>Nenhuma ocorrencia cadastrada</Title>
-            <Paragraph>Toque em "Nova" para cadastrar um risco.</Paragraph>
-          </Card.Content>
-        </Card>
-      ) : (
-        <ScrollView>
-          {ocorrencias.map((item) => (
-            <Card key={item.id} style={styles.card}>
-              <Card.Content>
-                <View style={styles.linhaEntre}>
-                  <Title>{item.tipo}</Title>
-                  <Chip>{item.risco}</Chip>
-                </View>
-                <Paragraph>{item.descricao}</Paragraph>
-                <Paragraph>Local: {item.local}</Paragraph>
-                <Paragraph>Validade: {item.validadeHoras}h</Paragraph>
-                <View style={styles.rowButtons}>
-                  <Button
-                    mode="outlined"
-                    icon="pencil"
-                    onPress={() => editarOcorrencia(item)}
-                    style={styles.flexButton}
-                  >
-                    Editar
-                  </Button>
-                  <Button
-                    mode="contained"
-                    buttonColor="#c62828"
-                    icon="delete"
-                    onPress={() => excluirOcorrencia(item)}
-                    style={styles.flexButton}
-                  >
-                    Excluir
-                  </Button>
-                </View>
-              </Card.Content>
-            </Card>
-          ))}
-        </ScrollView>
-      )}
-    </View>
-  );
+  const tituloTelaAtual = () => {
+    if (!usuario) return abaPublica === 'login' ? 'Tela de Login' : 'Tela de Cadastro';
+    if (telaPrivada === 'mapa') return 'Mapa de Perigos Proximos';
+    if (telaPrivada === 'perfil') return 'Perfil de Usuario';
+    if (telaPrivada === 'ocorrencias') return 'Ocorrencias';
+    if (telaPrivada === 'perfilForm') return editandoPerfil ? 'Editar Perfil' : 'Novo Perfil';
+    return editandoOcorrencia ? 'Editar Ocorrencia' : 'Nova Ocorrencia';
+  };
+
+  const mostrarLogoNoHeader = !usuario || telaPrivada === 'mapa';
+  const mostrarSetaVoltar = usuario && telaPrivada !== 'mapa';
+
+  const voltarTelaPrivada = () => {
+    if (telaPrivada === 'perfilForm') {
+      setTelaPrivada('perfil');
+      return;
+    }
+    if (telaPrivada === 'ocorrenciaForm') {
+      setTelaPrivada('ocorrencias');
+      return;
+    }
+    if (telaPrivada === 'perfil' || telaPrivada === 'ocorrencias') {
+      setTelaPrivada('mapa');
+    }
+  };
 
   if (carregandoAuth) {
     return (
-      <PaperProvider>
+      <PaperProvider theme={tema}>
         <SafeAreaProvider>
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>Validando sessao...</Text>
+            <Appbar.Header style={styles.appbar}>
+              <Appbar.Content title="SafeZone" />
+            </Appbar.Header>
           </View>
         </SafeAreaProvider>
       </PaperProvider>
@@ -728,178 +601,98 @@ export default function App() {
   }
 
   return (
-    <PaperProvider>
+    <PaperProvider theme={tema}>
       <SafeAreaProvider>
         <View style={styles.container}>
           <StatusBar style="auto" />
-          <Appbar.Header>
-            <Appbar.Content
-              title={usuario ? 'SafeZone - Area Logada' : 'SafeZone - Autenticacao'}
-              subtitle={usuario ? usuario.email : 'Acesse ou cadastre sua conta'}
-            />
+          <Appbar.Header style={styles.appbar}>
+            {mostrarSetaVoltar ? (
+              <Appbar.Action icon="arrow-left" onPress={voltarTelaPrivada} />
+            ) : null}
+
+            {mostrarLogoNoHeader ? (
+              <View style={styles.appbarBrandContainer}>
+                <Image
+                  source={require('./assets/principal.png')}
+                  style={styles.appbarLogo}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : (
+              <Appbar.Content title={tituloTelaAtual()} titleStyle={styles.appbarTitle} />
+            )}
+
             {usuario ? (
               <>
-                <Appbar.Action icon="refresh" onPress={abaPrivada === 'perfil' ? carregarPerfil : carregarOcorrencias} />
-                <Appbar.Action icon="logout" onPress={sair} />
+                <Menu
+                  visible={menuVisible}
+                  onDismiss={() => setMenuVisible(false)}
+                  anchor={<Appbar.Action icon="menu" onPress={() => setMenuVisible(true)} />}
+                >
+                  <Menu.Item
+                    title="Mapa principal"
+                    onPress={() => {
+                      setMenuVisible(false);
+                      setTelaPrivada('mapa');
+                    }}
+                  />
+                  <Menu.Item
+                    title="Perfil"
+                    onPress={() => {
+                      setMenuVisible(false);
+                      setTelaPrivada('perfil');
+                    }}
+                  />
+                  <Menu.Item
+                    title="Ocorrencias"
+                    onPress={() => {
+                      setMenuVisible(false);
+                      setTelaPrivada('ocorrencias');
+                    }}
+                  />
+                  <Menu.Item
+                    title="Deslogar"
+                    onPress={() => {
+                      setMenuVisible(false);
+                      sair();
+                    }}
+                  />
+                </Menu>
               </>
             ) : null}
           </Appbar.Header>
 
           {!usuario ? (
-            renderTelaPublica()
+            <AuthScreen
+              abaPublica={abaPublica}
+              setAbaPublica={setAbaPublica}
+              emailLogin={emailLogin}
+              setEmailLogin={setEmailLogin}
+              senhaLogin={senhaLogin}
+              setSenhaLogin={setSenhaLogin}
+              nomeCadastro={nomeCadastro}
+              setNomeCadastro={setNomeCadastro}
+              emailCadastro={emailCadastro}
+              setEmailCadastro={setEmailCadastro}
+              senhaCadastro={senhaCadastro}
+              setSenhaCadastro={setSenhaCadastro}
+              confirmarSenha={confirmarSenha}
+              setConfirmarSenha={setConfirmarSenha}
+              ocultarSenhaLogin={ocultarSenhaLogin}
+              setOcultarSenhaLogin={setOcultarSenhaLogin}
+              ocultarSenhaCadastro={ocultarSenhaCadastro}
+              setOcultarSenhaCadastro={setOcultarSenhaCadastro}
+              ocultarConfirmacaoSenha={ocultarConfirmacaoSenha}
+              setOcultarConfirmacaoSenha={setOcultarConfirmacaoSenha}
+              acaoEmAndamento={acaoEmAndamento}
+              fazerLogin={fazerLogin}
+              cadastrarUsuario={cadastrarUsuario}
+            />
           ) : (
-            <View style={styles.areaPrivada}>
-              <SegmentedButtons
-                value={abaPrivada}
-                onValueChange={setAbaPrivada}
-                buttons={[
-                  { value: 'perfil', label: 'Perfil (CRUD)' },
-                  { value: 'ocorrencias', label: 'Ocorrencias (CRUD)' },
-                ]}
-                style={styles.segmented}
-              />
-              <View style={styles.conteudoPrivado}>
-                {abaPrivada === 'perfil' ? renderPerfil() : renderOcorrencias()}
-              </View>
+            <View style={telaPrivada === 'mapa' ? styles.areaPrivadaMapa : styles.areaPrivada}>
+              {renderConteudoPrivado()}
             </View>
           )}
-
-          <Portal>
-            <Modal
-              visible={modalPerfil}
-              onDismiss={() => setModalPerfil(false)}
-              contentContainerStyle={styles.modal}
-            >
-              <Card>
-                <Card.Content>
-                  <Title>Editar perfil</Title>
-                  <TextInput
-                    label="Nome"
-                    value={perfilForm.nome}
-                    onChangeText={(text) => setPerfilForm({ ...perfilForm, nome: text })}
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="Telefone"
-                    value={perfilForm.telefone}
-                    onChangeText={(text) => setPerfilForm({ ...perfilForm, telefone: text })}
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="Cidade"
-                    value={perfilForm.cidade}
-                    onChangeText={(text) => setPerfilForm({ ...perfilForm, cidade: text })}
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="URL da foto"
-                    value={perfilForm.foto}
-                    onChangeText={(text) => setPerfilForm({ ...perfilForm, foto: text })}
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <View style={styles.rowButtons}>
-                    <Button
-                      mode="outlined"
-                      onPress={() => setModalPerfil(false)}
-                      style={styles.flexButton}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      mode="contained"
-                      icon="check"
-                      onPress={atualizarPerfil}
-                      style={styles.flexButton}
-                    >
-                      Salvar
-                    </Button>
-                  </View>
-                </Card.Content>
-              </Card>
-            </Modal>
-          </Portal>
-
-          <Portal>
-            <Modal
-              visible={modalOcorrencia}
-              onDismiss={() => setModalOcorrencia(false)}
-              contentContainerStyle={styles.modal}
-            >
-              <Card>
-                <Card.Content>
-                  <Title>{editandoOcorrencia ? 'Editar ocorrencia' : 'Nova ocorrencia'}</Title>
-                  <TextInput
-                    label="Tipo de perigo"
-                    value={ocorrenciaAtual.tipo}
-                    onChangeText={(text) =>
-                      setOcorrenciaAtual({ ...ocorrenciaAtual, tipo: text })
-                    }
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="Descricao"
-                    value={ocorrenciaAtual.descricao}
-                    onChangeText={(text) =>
-                      setOcorrenciaAtual({ ...ocorrenciaAtual, descricao: text })
-                    }
-                    mode="outlined"
-                    style={styles.input}
-                    multiline
-                  />
-                  <TextInput
-                    label="Local"
-                    value={ocorrenciaAtual.local}
-                    onChangeText={(text) =>
-                      setOcorrenciaAtual({ ...ocorrenciaAtual, local: text })
-                    }
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="Risco (Baixo, Medio, Alto)"
-                    value={ocorrenciaAtual.risco}
-                    onChangeText={(text) =>
-                      setOcorrenciaAtual({ ...ocorrenciaAtual, risco: text })
-                    }
-                    mode="outlined"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    label="Validade em horas"
-                    value={ocorrenciaAtual.validadeHoras}
-                    onChangeText={(text) =>
-                      setOcorrenciaAtual({ ...ocorrenciaAtual, validadeHoras: text })
-                    }
-                    mode="outlined"
-                    style={styles.input}
-                    keyboardType="numeric"
-                  />
-                  <View style={styles.rowButtons}>
-                    <Button
-                      mode="outlined"
-                      onPress={() => setModalOcorrencia(false)}
-                      style={styles.flexButton}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      mode="contained"
-                      icon={editandoOcorrencia ? 'check' : 'plus'}
-                      onPress={salvarOcorrencia}
-                      style={styles.flexButton}
-                    >
-                      {editandoOcorrencia ? 'Atualizar' : 'Salvar'}
-                    </Button>
-                  </View>
-                </Card.Content>
-              </Card>
-            </Modal>
-          </Portal>
         </View>
       </SafeAreaProvider>
     </PaperProvider>
@@ -909,85 +702,34 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f2f4f8',
+    backgroundColor: CORES.fundo,
+  },
+  appbar: {
+    backgroundColor: CORES.primaria,
+  },
+  appbarBrandContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingLeft: 8,
+    alignItems: 'center',
+  },
+  appbarLogo: {
+    width: '80%',
+    height: '100%',
+  },
+  appbarTitle: {
+    color: CORES.fundo,
+    fontWeight: '700',
   },
   areaPrivada: {
     flex: 1,
     padding: 12,
   },
-  conteudoPrivado: {
+  areaPrivadaMapa: {
     flex: 1,
-    marginTop: 10,
-  },
-  fullHeight: {
-    flex: 1,
-  },
-  centralizado: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 16,
-  },
-  cardAuth: {
-    borderRadius: 12,
-  },
-  card: {
-    marginBottom: 10,
-  },
-  titulo: {
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitulo: {
-    textAlign: 'center',
-    marginBottom: 14,
-  },
-  segmented: {
-    marginBottom: 14,
-  },
-  input: {
-    marginBottom: 12,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  loadingText: {
-    marginTop: 8,
-  },
-  linhaPerfil: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  colunaPerfil: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  divider: {
-    marginVertical: 10,
-  },
-  rowButtons: {
-    marginTop: 14,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  flexButton: {
-    flex: 1,
-  },
-  modal: {
-    margin: 16,
-  },
-  headerLista: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  linhaEntre: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
   },
 });
