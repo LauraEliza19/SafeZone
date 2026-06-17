@@ -20,9 +20,9 @@ export default function OccurrenceFormScreen({
   const [mapaVisible, setMapaVisible] = useState(false);
   const riscos = ['Baixo', 'Medio', 'Alto'];
 
-  const abrirMapa = async () => {
-    await abrirMapaSelecao();
+  const abrirMapa = () => {
     setMapaVisible(true);
+    abrirMapaSelecao();
   };
 
   return (

@@ -358,7 +358,7 @@ export default function App() {
           setAcaoEmAndamento(true);
           try {
             await deleteDoc(doc(db, 'ocorrencias', item.id));
-            await carregarOcorrencias();
+            await Promise.all([carregarOcorrencias(), carregarMapaPrincipal()]);
             Alert.alert('Sucesso', 'Ocorrencia excluida.');
           } catch (error) {
             Alert.alert('Erro', 'Nao foi possivel excluir: ' + error.message);
@@ -381,7 +381,19 @@ export default function App() {
       }
       const permissao = await Location.requestForegroundPermissionsAsync();
       if (permissao.granted) {
-        const posicao = await Location.getCurrentPositionAsync({});
+        const ultimaPosicao = await Location.getLastKnownPositionAsync();
+        if (ultimaPosicao?.coords) {
+          setRegiaoMapa((atual) => ({
+            ...atual,
+            latitude: ultimaPosicao.coords.latitude,
+            longitude: ultimaPosicao.coords.longitude,
+          }));
+          return;
+        }
+        const posicao = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          maximumAge: 10000,
+        });
         setRegiaoMapa((atual) => ({
           ...atual,
           latitude: posicao.coords.latitude,
@@ -430,6 +442,7 @@ export default function App() {
         validadeHoras: Number(ocorrenciaAtual.validadeHoras),
         expiraEm: new Date(Date.now() + Number(ocorrenciaAtual.validadeHoras) * 60 * 60 * 1000),
       };
+      let ocorrenciaSalvaId = ocorrenciaAtual.id;
       if (editandoOcorrencia) {
         await updateDoc(doc(db, 'ocorrencias', ocorrenciaAtual.id), {
           ...payload,
@@ -437,16 +450,42 @@ export default function App() {
         });
         Alert.alert('Sucesso', 'Ocorrencia atualizada.');
       } else {
-        await addDoc(collection(db, 'ocorrencias'), {
+        const docRef = await addDoc(collection(db, 'ocorrencias'), {
           ...payload,
           criadoEm: serverTimestamp(),
         });
+        ocorrenciaSalvaId = docRef.id;
         Alert.alert('Sucesso', 'Ocorrencia cadastrada.');
       }
+      const ocorrenciaSalva = {
+        id: ocorrenciaSalvaId,
+        ...payload,
+      };
+      setOcorrencias((anteriores) => {
+        const semDuplicadas = anteriores.filter((item) => item.id !== ocorrenciaSalvaId);
+        return [ocorrenciaSalva, ...semDuplicadas];
+      });
+      setOcorrenciasProximas((anteriores) => {
+        const semDuplicadas = anteriores.filter((item) => item.id !== ocorrenciaSalvaId);
+        const distanciaKm = localAtual
+          ? calcularDistanciaKm(
+              localAtual.latitude,
+              localAtual.longitude,
+              ocorrenciaSalva.latitude,
+              ocorrenciaSalva.longitude
+            )
+          : 0;
+        const dentroDoRaio = !localAtual || distanciaKm <= 10;
+        if (!dentroDoRaio) return semDuplicadas;
+        return [{ ...ocorrenciaSalva, distanciaKm }, ...semDuplicadas].sort(
+          (a, b) => (a.distanciaKm ?? 0) - (b.distanciaKm ?? 0)
+        );
+      });
       setOcorrenciaAtual(OCORRENCIA_INICIAL);
       setEditandoOcorrencia(false);
-      await carregarOcorrencias();
-      setTelaPrivada('ocorrencias');
+      setTelaPrivada('mapa');
+      carregarOcorrencias();
+      carregarMapaPrincipal();
     } catch (error) {
       Alert.alert('Erro', 'Nao foi possivel salvar a ocorrencia: ' + error.message);
     } finally {
