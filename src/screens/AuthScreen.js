@@ -54,14 +54,14 @@ export default function AuthScreen({
                 {
                   value: 'login',
                   label: 'Entrar',
-                  checkedColor: CORES.fundo,
-                  uncheckedColor: '#FFFFFF',
+                  checkedColor: '#FFFFFF',
+                  uncheckedColor: CORES.fundo,
                 },
                 {
                   value: 'cadastro',
                   label: 'Cadastrar',
-                  checkedColor: CORES.fundo,
-                  uncheckedColor: '#FFFFFF',
+                  checkedColor: '#FFFFFF',
+                  uncheckedColor: CORES.fundo,
                 },
               ]}
               style={styles.segmented}
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   centralizado: { flexGrow: 1, justifyContent: 'center', padding: 16 },
   cardAuth: { borderRadius: 12, backgroundColor: CORES.primaria },
   authLogo: { width: '100%', height: 120, alignSelf: 'center', marginBottom: 10 },
-  segmented: { marginBottom: 14, backgroundColor: CORES.fundo, borderRadius: 999 },
+  segmented: { marginBottom: 14, backgroundColor: '#FFFFFF', borderRadius: 999 },
   inputPill: {
     marginBottom: 12,
     borderRadius: 28,

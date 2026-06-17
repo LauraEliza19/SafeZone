@@ -25,7 +25,7 @@ export const tema = {
 
 export const segmentedTheme = {
   colors: {
-    secondaryContainer: '#FFFFFF',
-    onSecondaryContainer: CORES.fundo,
+    secondaryContainer: CORES.fundo,
+    onSecondaryContainer: '#FFFFFF',
   },
 };
